@@ -1,7 +1,7 @@
 Базовые конструкции языка
 Лекция 2
 
-Фёдор Короткий
+Павел Косицын
 
 * Имена
 
@@ -43,7 +43,7 @@
 
 .play exported/example.go
 
-Пакеты всегда называют в нижнем регистре и без подчеркиваний
+Пакеты всегда называют в нижнем регистре слитно
 
   fmt
   grpcmiddleware
@@ -70,7 +70,7 @@
 
   i, j := 0, 1
 
-Существующим переменным присваиваются новые значения
+Для существующего названия создается новая переменная с этим названием
 
   in, err := os.Open(infile)
   // ...
@@ -98,6 +98,8 @@
       v := 1
       return &v
   }
+
+: Возвращать указатели можно, компилятор сам определяет, что на стеке, что на куче
 
 * flag
 
@@ -187,9 +189,13 @@
 
   func f() int { return c + 1 }
 
+: Циклы приводят к ошибке компиляции
+
 * package initialization
 
 .play popcount/popcount.go
+
+: Функция init()
 
 * scope
 
@@ -229,6 +235,8 @@
       }
       log.Printf("Working directory = %s", cwd)
   }
+
+: cwd в init имеет свой скоуп
 
 * strings
 
@@ -289,6 +297,8 @@
 
 - Может ли строка `string([]rune(s))` быть больше `s`?
 
+: Ответ: да. replacement character занимает 2 байта, 0b10000000 - один, и он некорректный.
+
 * stdlib
 
 - `strings` - HasSuffix, Split, Join, etc.
@@ -318,6 +328,8 @@
       buf.WriteByte(']')
       return buf.Bytes()
   }
+
+: Удобная сборка слайса байт. Строки собираются аналогично через strings.Builder
 
 * constants
 
@@ -431,6 +443,8 @@
 
   sCopy := append([]int(nil), s...) // use slices.Clone instead
 
+: Все операции поверх слайсов работают с nil как с слайсом нулевой длины
+
 * stack
 
   stack = append(stack, v) // push v
@@ -506,7 +520,12 @@
 
 * set
 
+Хочется написать так
+
   var s0 map[string]bool
+
+Но вариант выше - троичная логика. Меньше места будет занимать такой вариант
+
   var s1 map[string]struct{}
 
 * struct
@@ -542,6 +561,8 @@
   q := Point{2, 1}
   fmt.Println(p.X == q.X && p.Y == q.Y) // "false"
   fmt.Println(p == q)                   // "false"
+
+: Рассказать что такое comparable. И что это эквивалентно хэшируемости
 
 Можно использовать структуры как ключи
 
@@ -640,6 +661,8 @@
 * named return values
 
 .play countwords/main.go /func Count/,/^}/
+
+: По-разному работает defer с named values и unnamed. Unnamed работает а-ля __result = value; return __result, поэтому defer с манипуляцией с value не влияет на возвращаемое значение
 
 * errors
 
