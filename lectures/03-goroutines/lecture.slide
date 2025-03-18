@@ -14,6 +14,9 @@
 - Сколько можно запустить, чтобы не тормозило 100_000 vs 1000 (эмпирически)
 - Встроенная оптимизация системных вызовов да vs нет
 
+: https://github.com/ivorscott/concurrency-in-go - оптимизация сисколов через абстракцию + рантайм
+: https://yeah366.com/2023/01/Go-Language-Design-and-Implementation--Goroutine/ - чисто инструкций
+
 Больше на лекции про шедулер
 
 * Spinner Example
@@ -179,7 +182,7 @@
 
 * Parallel loop
 
-  // NOTE: incorrect!
+  // NOTE: incorrect before go 1.23!
   func makeThumbnails2(filenames []string) {
       for _, f := range filenames {
           go thumbnail.ImageFile(f) // NOTE: ignoring errors
@@ -211,10 +214,11 @@
   func makeThumbnails4(filenames []string) error {
       errors := make(chan error)
       for _, f := range filenames {
-          go func(f string) {
+          f := f
+          go func() {
               _, err := thumbnail.ImageFile(f)
               errors <- err
-          }(f)
+          }()
       }
 
       for range filenames {
@@ -227,6 +231,8 @@
 
 - Найдите баг?)
 
+: Тот самый дедлок из-за невычитанного канала ошибок
+
 * Parallel loop
 
   func makeThumbnails5(filenames []string) (thumbfiles []string, err error) {
@@ -236,11 +242,11 @@
       }
       ch := make(chan item, len(filenames))
       for _, f := range filenames {
-          go func(f string) {
+          go func() {
               var it item
               it.thumbfile, it.err = thumbnail.ImageFile(f)
               ch <- it
-          }(f)
+          }()
       }
       for range filenames {
           it := <-ch
@@ -258,11 +264,11 @@
       var wg sync.WaitGroup
       for _, f := range filenames {
           wg.Add(1)
-          go func(f string) {
+          go func() {
               defer wg.Done()
 
               _, _ = thumbnail.ImageFile(f)
-          }(f)
+          }()
       }
       wg.Wait()
   }
@@ -290,17 +296,20 @@
       seen := make(map[string]struct{})
       for list := range worklist {
           for _, link := range list {
-              if _, ok := seen[link]; !ok {
-                  seen[link] = struct{}{}
-                  go func(link string) {
-                      worklist <- crawl(link)
-                  }(link)
+              if _, ok := seen[link]; ok {
+                  continue
               }
+              seen[link] = struct{}{}
+              go func() {
+                  worklist <- crawl(link)
+              }()
           }
       }
   }
 
 - Почему этот код упадёт?
+
+: Никто не закрывает канал, а значит eventually будет дедлок.
 
 * Web Crawler
 
@@ -329,6 +338,8 @@
       }
       launch()
   }
+
+: Изучить https://go-review.googlesource.com/c/go/+/214999?tab=comments
 
 В другой горутине:
 
