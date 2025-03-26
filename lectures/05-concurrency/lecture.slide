@@ -184,7 +184,7 @@ Concurrency with Shared Memory
   x:0 y:0
   y:0 x:0
 
-* Ленивая инициализация sync.Once.
+* Ленивая инициализация
 
   var icons map[string]image.Image
 
@@ -202,7 +202,7 @@ Concurrency with Shared Memory
       return icons[name]
   }
 
-* Ленивая инициализация sync.Once.
+* Ленивая инициализация
 
   var mu sync.Mutex // guards icons
   var icons map[string]image.Image
@@ -217,7 +217,7 @@ Concurrency with Shared Memory
       return icons[name]
   }
 
-* Ленивая инициализация sync.Once.
+* Ленивая инициализация
 
   var loadIconsOnce sync.Once
   var icons map[string]image.Image
@@ -362,7 +362,7 @@ Concurrency with Shared Memory
     Value(key any) any
   }
 
-- Отмена таймауты
+- Отмена, таймауты
 - Передача request scoped значений
 
 * context
