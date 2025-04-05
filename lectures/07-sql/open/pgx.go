@@ -13,5 +13,5 @@ func PGXOpen() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer conn.Close(ctx)
+	defer conn.Close(ctx) // at the end of the program
 }

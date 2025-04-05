@@ -12,5 +12,5 @@ func SQLOpen() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	defer db.Close() // at the end of the program
 }
