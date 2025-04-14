@@ -1,7 +1,7 @@
 Generics
 Лекция 8
 
-Арсений Балобанов
+Павел Косицын
 
 * Generics
 
@@ -161,6 +161,8 @@ there is one nice solution
 * min
 
 .play -edit min/basic/min.go /^func min/,/^}/
+
+- Note: actually min is builtin from 1.21
 
 * Generic min
 
@@ -477,6 +479,14 @@ just skip this slide...
 - No way to determine the instantiated type statically
 - No function overloading
 - No way to express convertibility
+
+* Partial instantiation
+
+- since 1.24
+
+  type Map[K, V any] struct{}
+
+  type Set[K comparable] = Map[K, struct{}] // note: K had "any" constraint.
 
 * Summary
 
