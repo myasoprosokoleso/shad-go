@@ -32,7 +32,7 @@ http
   Head(url string) (*Response, error)
   PostForm(url string, form url.Values) (*Response, error)
 
-* Делаем более лучший запрос
+* Делаем запрос лучше
 
 .play custompost/custompost.go /func/,/^}/
 

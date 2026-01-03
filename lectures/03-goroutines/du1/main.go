@@ -50,13 +50,14 @@ func walkDir(dir string, fileSizes chan<- int64) {
 			subdir := filepath.Join(dir, entry.Name())
 			walkDir(subdir, fileSizes)
 		} else {
-			fileSizes <- entry.Size()
+			info, _ := entry.Info()
+			fileSizes <- info.Size()
 		}
 	}
 }
 
 // dirents returns the entries of directory dir.
-func dirents(dir string) []os.FileInfo {
+func dirents(dir string) []os.DirEntry {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "du1: %v\n", err)

@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	handler := func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "<html><body>Hello World!</body></html>")
 	}
 

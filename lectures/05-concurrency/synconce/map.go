@@ -6,7 +6,7 @@ var cache sync.Map
 
 type result struct{}
 
-func do(key string) *result { return new(result) }
+func do(string) *result { return new(result) }
 
 type entry struct {
 	res *result

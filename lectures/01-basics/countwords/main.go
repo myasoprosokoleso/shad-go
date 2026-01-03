@@ -22,6 +22,6 @@ func CountWordsAndImages(url string) (words, images int, err error) {
 	return
 }
 
-func countWordsAndImages(n *html.Node) (words, images int) {
+func countWordsAndImages(*html.Node) (words, images int) {
 	return
 }

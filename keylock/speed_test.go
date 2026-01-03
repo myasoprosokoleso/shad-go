@@ -1,7 +1,7 @@
 package keylock
 
 import (
-	"math/rand"
+	"math/rand/v2"
 	"strconv"
 	"sync"
 	"testing"

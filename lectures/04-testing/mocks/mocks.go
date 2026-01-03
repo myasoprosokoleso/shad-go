@@ -3,6 +3,7 @@ package mocks
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/smtp"
 )
 
@@ -28,7 +29,7 @@ var notifyUser = doNotifyUser
 
 func doNotifyUser(username, msg string) {
 	auth := smtp.PlainAuth("", sender, password, hostname)
-	err := smtp.SendMail(hostname+":587", auth, sender,
+	err := smtp.SendMail(net.JoinHostPort(hostname, "587"), auth, sender,
 		[]string{username}, []byte(msg))
 	if err != nil {
 		log.Printf("smtp.SendEmail(%s) failed: %s", username, err)

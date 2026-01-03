@@ -3,12 +3,13 @@
 
 // Test of echo command.  Run with: go test gopl.io/ch11/echo
 
-//!+
+// !+
 package main
 
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -24,6 +25,7 @@ func TestEcho(t *testing.T) {
 		{true, "\t", []string{"one", "two", "three"}, "one\ttwo\tthree\n"},
 		{true, ",", []string{"a", "b", "c"}, "a,b,c\n"},
 	}
+	defer func() { out = os.Stdout }()
 	for _, test := range tests {
 		descr := fmt.Sprintf("echo(%v, %q, %q)", test.newline, test.sep, test.args)
 		out = new(bytes.Buffer) // captured output

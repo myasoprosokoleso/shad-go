@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"gitlab.com/slon/shad-go/gossip/meshpb"
-	"google.golang.org/grpc"
+	// "google.golang.org/grpc"
 )
 
 type PeerConfig struct {

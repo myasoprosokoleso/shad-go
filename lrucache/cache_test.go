@@ -1,7 +1,7 @@
 package lrucache
 
 import (
-	"math/rand"
+	"math/rand/v2"
 	"runtime/debug"
 	"sort"
 	"testing"
@@ -95,7 +95,7 @@ func TestCache_Range(t *testing.T) {
 }
 
 func TestCache_eviction(t *testing.T) {
-	r := rand.New(rand.NewSource(42))
+	r := rand.New(rand.NewPCG(1, 42))
 
 	for _, tc := range []struct {
 		name       string
@@ -127,7 +127,7 @@ func TestCache_eviction(t *testing.T) {
 
 			keyToValue := make(map[int]int)
 			for i := 0; i < tc.numInserts; i++ {
-				key := int(r.Int31n(tc.maxKey))
+				key := int(r.Int32N(tc.maxKey))
 				c.Set(key, i)
 				keyToValue[key] = i
 			}

@@ -96,4 +96,4 @@ key not found
 2. протокол HTTP: https://ru.wikipedia.org/wiki/HTTP
 3. http multiplexer: https://golang.org/pkg/net/http/#ServeMux
 4. десериализация json'а: https://golang.org/pkg/encoding/json/#example_Unmarshal
-5. генерация случайных данных: https://golang.org/pkg/math/rand/
+5. генерация случайных данных: https://golang.org/pkg/math/rand/v2

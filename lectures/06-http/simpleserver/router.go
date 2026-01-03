@@ -21,10 +21,10 @@ func RunServerWithRouting() {
 	}
 }
 
-func pongHandler(w http.ResponseWriter, r *http.Request) {
+func pongHandler(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("pong"))
 }
-func shmongHandler(w http.ResponseWriter, r *http.Request) {
+func shmongHandler(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("shmong"))
 }
 

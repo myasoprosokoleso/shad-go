@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -18,7 +19,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	scanner := bufio.NewScanner(fd)
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
-			fmt.Println(ctx.Err())
+			fmt.Println(context.Cause(ctx))
 			return
 		}
 		_, _ = w.Write(scanner.Bytes())

@@ -39,8 +39,9 @@ func main() {
 	fileSizes := make(chan int64)
 	var n sync.WaitGroup
 	for _, root := range roots {
-		n.Add(1)
-		go walkDir(root, &n, fileSizes)
+		n.Go(func() {
+			walkDir(root, &n, fileSizes)
+		})
 	}
 	go func() {
 		n.Wait()
@@ -83,14 +84,15 @@ func printDiskUsage(nfiles, nbytes int64) {
 // and sends the size of each found file on fileSizes.
 // !+walkDir
 func walkDir(dir string, n *sync.WaitGroup, fileSizes chan<- int64) {
-	defer n.Done()
 	for _, entry := range dirents(dir) {
 		if entry.IsDir() {
-			n.Add(1)
-			subdir := filepath.Join(dir, entry.Name())
-			go walkDir(subdir, n, fileSizes)
+			n.Go(func() {
+				subdir := filepath.Join(dir, entry.Name())
+				walkDir(subdir, n, fileSizes)
+			})
 		} else {
-			fileSizes <- entry.Size()
+			info, _ := entry.Info()
+			fileSizes <- info.Size()
 		}
 	}
 }
@@ -102,7 +104,7 @@ func walkDir(dir string, n *sync.WaitGroup, fileSizes chan<- int64) {
 var sema = make(chan struct{}, 20)
 
 // dirents returns the entries of directory dir.
-func dirents(dir string) []os.FileInfo {
+func dirents(dir string) []os.DirEntry {
 	sema <- struct{}{}        // acquire token
 	defer func() { <-sema }() // release token
 	// ...

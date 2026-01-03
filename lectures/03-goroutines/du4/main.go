@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-//!+1
+// !+1
 var done = make(chan struct{})
 
 func cancelled() bool {
@@ -50,8 +50,9 @@ func main() {
 	fileSizes := make(chan int64)
 	var n sync.WaitGroup
 	for _, root := range roots {
-		n.Add(1)
-		go walkDir(root, &n, fileSizes)
+		n.Go(func() {
+			walkDir(root, &n, fileSizes)
+		})
 	}
 	go func() {
 		n.Wait()
@@ -92,9 +93,8 @@ func printDiskUsage(nfiles, nbytes int64) {
 
 // walkDir recursively walks the file tree rooted at dir
 // and sends the size of each found file on fileSizes.
-//!+4
+// !+4
 func walkDir(dir string, n *sync.WaitGroup, fileSizes chan<- int64) {
-	defer n.Done()
 	if cancelled() {
 		return
 	}
@@ -102,9 +102,10 @@ func walkDir(dir string, n *sync.WaitGroup, fileSizes chan<- int64) {
 		// ...
 		//!-4
 		if entry.IsDir() {
-			n.Add(1)
-			subdir := filepath.Join(dir, entry.Name())
-			go walkDir(subdir, n, fileSizes)
+			n.Go(func() {
+				subdir := filepath.Join(dir, entry.Name())
+				walkDir(subdir, n, fileSizes)
+			})
 		} else {
 			fileSizes <- entry.Size()
 		}
@@ -117,7 +118,7 @@ func walkDir(dir string, n *sync.WaitGroup, fileSizes chan<- int64) {
 var sema = make(chan struct{}, 20) // concurrency-limiting counting semaphore
 
 // dirents returns the entries of directory dir.
-//!+5
+// !+5
 func dirents(dir string) []os.FileInfo {
 	select {
 	case sema <- struct{}{}: // acquire token

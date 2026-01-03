@@ -2,7 +2,7 @@ package ratelimit
 
 import (
 	"context"
-	"math/rand"
+	"math/rand/v2"
 	"sort"
 	"sync"
 	"testing"

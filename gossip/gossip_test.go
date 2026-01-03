@@ -2,7 +2,7 @@ package gossip_test
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"testing"
 	"time"

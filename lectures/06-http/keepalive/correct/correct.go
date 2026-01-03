@@ -14,10 +14,8 @@ func main() {
 
 	var wg sync.WaitGroup
 	for _, url := range urls {
-		wg.Add(1)
-
-		go func(url string) {
-			defer wg.Done()
+		url := url
+		wg.Go(func() {
 			resp, err := client.Get(url)
 			if err != nil {
 				fmt.Printf("%s: %s\n", url, err)
@@ -26,7 +24,7 @@ func main() {
 			defer resp.Body.Close()
 			_, _ = io.Copy(io.Discard, resp.Body)
 			fmt.Printf("%s - %d\n", url, resp.StatusCode)
-		}(url)
+		})
 	}
 
 	wg.Wait()
