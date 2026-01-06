@@ -353,13 +353,347 @@ Pointers
 .link https://golang.org/doc/faq Go FAQ
 .link https://github.com/golang/go/wiki/CodeReviewComments Code Review Comments
 
-* Семинар
+* Setup Go project
 
-- Установка go
-- Репозиторий курса
-- Сборка, запуск тестов
-- goimports, gofmt
-- Настройка IDE. (emacs, goland, vscode)
-- Запуск тестов из IDE
-- Запуск линтера
-- Сдача заданий
+* Install go
+
+.link https://go.dev/doc/install https://go.dev/doc/install
+
+- *GOROOT* -- where go distribution is installed
+- *GOPATH* -- where all libraries are stored
+
+* Init project
+
+  # mkdir -p 00-intro/myproject/cmd/fav
+  # cat 00-intro/myproject/cmd/fav/main.go
+  package main
+
+  func   main()    {
+   fmt.Printf("my favourite number is %d\n", 42)
+  }
+
+* Create module
+
+  # go mod init github.com/pkositsyn/myproject
+  go: creating new go.mod: module github.com/pkositsyn/myproject
+  # cat go.mod
+  module github.com/pkositsyn/myproject
+
+  go 1.25.5
+
+- *package* -- collection of source files in the same directory that are compiled together
+- *module* -- collection of related Go packages that are released together
+- github.com/pkositsyn/myproject -- *module*path*, the import path prefix for all packages within the module
+
+* Run program
+
+- *go*run* compiles and runs the main package comprising the named Go source files.
+
+  # go run myproject/cmd/fav/main.go
+  # command-line-arguments
+  main.go:6:2: undefined: fmt
+
+* Install goimports
+
+  # go install golang.org/x/tools/cmd/goimports
+  # tree -L 3 $GOPATH
+  /home/kositsyn-pa/go
+  ├── bin
+  │   └── goimports
+  └── pkg
+      └── mod
+          └── github.com
+
+  # export PATH=$GOPATH/bin:$PATH
+
+* Formatting
+
+Fix imports and format file.
+
+  # goimports -w myproject/
+  # cat myproject/cmd/fav/main.go
+  package main
+  
+  import "fmt"
+  
+  func main() {
+  	fmt.Printf("my favourite number is %d\n", 42)
+  }
+
+Compile and run.
+
+  # go run cmd/fav
+  my favourite number is 42
+
+* More on formatting
+
+- *gofmt* -- gofmt formats Go programs
+- *go*fmt* -- runs the command 'gofmt -l -w'
+- *goimports* -- updates Go import lines, adding missing ones and removing unreferenced ones; also formats your code
+
+* Go build
+
+  # go build cmd/fav
+  # ./fav
+  my favourite number is 42
+
+- *go*build* -- compiles the packages named by the import paths along with their dependencies, but it does not install the results.
+
+* Cross-compilation
+
+- *GOARCH* -- target compilation architecture, e.g. amd64, arm
+- *GOOS* --  target operating system, e.g. linux, darwin, windows
+
+* Installing main package
+
+  # go install github.com/pkositsyn/myproject/cmd/fav
+  # tree -L 3 $GOPATH
+  /home/kositsyn-pa/go
+  ├── bin
+  │   ├── fav
+  │   └── goimports
+  └── pkg
+      └── mod
+          └── github.com
+
+Layout
+
+- *$GOPATH/bin* -- executable files
+- *$GOPATH/pkg/mod* -- source files for modules e.g. .go
+
+Run installed binary.
+
+  # $GOPATH/bin/fav
+  my favourite number is 42
+
+* Use subpackage
+
+  # cat main.go
+  package main
+
+  import "github.com/pkositsyn/myproject/internal/fav"
+
+  func main() {
+      fav.Print()
+  }
+
+  # go run cmd/fav
+  # my favourite number is 42
+  
+
+* Add external dependency
+
+  # cat fav.go
+  package fav
+
+  import (
+    "fmt"
+
+    "github.com/google/uuid"
+  )
+
+  func Print() {
+    fmt.Printf("my favourite uuid is %s\n", uuid.New())
+  }
+
+* Update go.mod
+
+  # go mod tidy
+  go: finding module for package github.com/google/uuid
+  go: found github.com/google/uuid in github.com/google/uuid v1.6.0
+  # go run cmd/fav
+  my favourite uuid is 6b702928-359d-4cb6-8aa0-2097c2012d1d
+
+Requirements are stored in go.mod.
+
+  # cat go.mod
+  module github.com/pkositsyn/myproject
+
+  go 1.25.5
+
+  require github.com/google/uuid v1.6.0
+
+- *go*mod*tidy* makes sure go.mod matches the source code in the module
+
+* Modules store
+
+Modules are downloaded to *$GOPATH/pkg/mod*.
+
+  # tree -L 2 $GOPATH/pkg/mod/github.com/google
+  ...
+  ├── go-cmp@v0.4.0
+  │   ├── cmp
+  │   ├── CONTRIBUTING.md
+  │   ├── go.mod
+  │   ├── go.sum
+  │   ├── LICENSE
+  │   └── README.md
+  ├── go-cmp@v0.5.5
+  │   ├── cmp
+  │   ├── CONTRIBUTING.md
+  │   ├── go.mod
+  │   ├── go.sum
+  │   ├── LICENSE
+  │   └── README.md
+  ...
+
+* Go sum
+
+- *go.sum* -- stores the expected cryptographic hashes of the content of specific module versions
+
+  # cat go.sum
+  github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+  github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+
+* Go command
+
+  # go help
+  Go is a tool for managing Go source code.
+  
+  Usage:
+  	go command [arguments]
+  
+  The commands are:
+  	build       compile packages and dependencies
+  	clean       remove object files and cached files
+  	doc         show documentation for package or symbol
+  	env         print Go environment information
+  	bug         start a bug report
+  	fix         update packages to use new APIs
+  	fmt         gofmt (reformat) package sources
+  	generate    generate Go files by processing source
+  	get         download and install packages and dependencies
+  	install     compile and install packages and dependencies
+  	list        list packages
+  	run         compile and run Go program
+  	test        test packages
+  	tool        run specified go tool
+  	version     print Go version
+  	vet         report likely mistakes in packages
+  ...
+
+* Go help
+
+Use *go*help*[command]* for more information about a command.
+
+  # go help env
+  usage: go env [-json] [var ...]
+  
+  Env prints Go environment information.
+  
+  By default env prints information as a shell script
+  (on Windows, a batch file). If one or more variable
+  names is given as arguments, env prints the value of
+  each named variable on its own line.
+  
+  The -json flag prints the environment in JSON format
+  instead of as a shell script.
+  
+  For more about environment variables, see 'go help environment'.
+
+* Go env
+
+  # go env
+  GOARCH="amd64"
+  GOBIN=""
+  GOCACHE="/root/.cache/go-build"
+  GOEXE=""
+  GOHOSTARCH="amd64"
+  GOHOSTOS="linux"
+  GOOS="linux"
+  GOPATH="/go"
+  GORACE=""
+  GOROOT="/usr/local/go"
+  GOTMPDIR=""
+  GOTOOLDIR="/usr/local/go/pkg/tool/linux_amd64"
+  GCCGO="gccgo"
+  CC="gcc"
+  CXX="g++"
+  CGO_ENABLED="1"
+  CGO_CFLAGS="-g -O2"
+  CGO_CPPFLAGS=""
+  CGO_CXXFLAGS="-g -O2"
+  CGO_FFLAGS="-g -O2"
+  CGO_LDFLAGS="-g -O2"
+  PKG_CONFIG="pkg-config"
+  GOGCCFLAGS="-fPIC -m64 -pthread -fmessage-length=0 -gno-record-gcc-switches"
+
+* Go list
+
+- *go*list* -- lists the packages named by the import paths, one per line.
+
+List packages.
+
+  # go list github.com/verytable/hello
+  github.com/verytable/hello
+
+List package files.
+
+  # go list -f {{.GoFiles}} github.com/verytable/hello
+  [main.go]
+
+List package imports.
+
+  # go list -f {{.Imports}} github.com/verytable/hello
+  [fmt github.com/verytable/string rsc.io/sampler]
+
+Run 'go help list' to see all format options.
+
+* Go mod graph
+
+- *go*mod*graph* prints the module requirement graph
+
+  # go mod graph
+  github.com/verytable/hello github.com/google/go-cmp@v0.5.5
+  github.com/google/go-cmp@v0.5.5 golang.org/x/xerrors@v0.0.0-20191204190536-9bdfabe68543
+
+* Go mod why
+
+- *go*mod*why* shows a shortest path in the import graph from the main module to the package
+
+  # go mod why  golang.org/x/xerrors
+  # golang.org/x/xerrors
+  github.com/verytable/hello
+  github.com/google/go-cmp/cmp
+  github.com/google/go-cmp/cmp.test
+  github.com/google/go-cmp/cmp/cmpopts
+  golang.org/x/xerrors
+
+* Go mod vendor
+
+- *go*mod*vendor* -- copies module requirements to ./vendor directory
+
+Vendor dependencies.
+
+  # go mod vendor
+  # tree -L 3 ./vendor
+  ./vendor
+  ├── github.com
+  │   └── google
+  │       └── go-cmp
+  └── modules.txt
+
+* Install dependencies
+
+- *go*get* -- downloads the packages named by the import paths, along with their dependencies.
+
+  # go get golang.org/x/vgo
+  # tree -L 5 $GOPATH
+  /go
+  └── pkg
+      └── mod 
+          └── golang.org
+              └── x
+                  ├── text
+                  └── vgo
+
+- *golang.org/x* -- namespace
+- *text*, *vgo* -- projects
+
+- *go*install* -- go get + compiles and installs the packages named by the import paths.
+
+* Ссылки:
+
+.link https://go.dev/ref/mod - modules reference
+.link https://golang.org/cmd/go/ - go cmd
+.link https://play-with-go.dev/ - play-with-go
