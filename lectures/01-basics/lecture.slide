@@ -76,7 +76,7 @@
   // ...
   out, err := os.Create(outfile)
 
-Но должна объявляться хотябы одна новая переменная
+Но должна объявляться хотя бы одна новая переменная
 
   f, err := os.Open(infile)
   // ...
@@ -89,17 +89,6 @@
   fmt.Println(*p) // "1"
   *p = 2
   fmt.Println(x)
-
-* escape analysis
-
-  var p = f()
-
-  func f() *int {
-      v := 1
-      return &v
-  }
-
-: Возвращать указатели можно, компилятор сам определяет, что на стеке, что на куче
 
 * flag
 
@@ -117,6 +106,8 @@
       var dummy int
       return &dummy
   }
+
+: *new(T) более уникально, чем T{}. В дженериках будет более актуально
 
 * zero size type
 
@@ -163,6 +154,8 @@
 
   type name = another-type
 
+: самый популярный алиас type any = interface{}
+
 * packages
 
 - Файл `tempconv/types.go`
@@ -200,6 +193,9 @@
 * scope
 
 .play scope/scope.go
+
+: Можно создавать скоуп через фигурные скобки - { //code }
+: Общая концепция - переменная живет до конца конструкции, в которой объявлена
 
 * scope
 
@@ -298,6 +294,7 @@
 - Может ли строка `string([]rune(s))` быть больше `s`?
 
 : Ответ: да. replacement character занимает 2 байта, 0b10000000 - один, и он некорректный.
+: Еще вопрос, почему всё работает именно так? Почему len по байтам, почему range по рунам.
 
 * stdlib
 
@@ -308,11 +305,15 @@
 - `path` - работа с unix путями
 - `filepath` - работа с путями текущей платформы
 
+: Угадать где находится работа с ошибками. И где находится функция Errorf
+
 * []byte
 
   s := "abc"
   b := []byte(s)
   s2 := string(b)
+
+: Рассказать как читерски можно за О(1) кастовать
 
 * bytes.Buffer
 
@@ -358,6 +359,8 @@
       FlagMulticast            // supports multicast access capability
   )
 
+: По сути получается битсет
+
 * untyped constants
 
   const (
@@ -375,6 +378,9 @@
 - Компилятор гарантирует как минимум 256 бит точности
 
   fmt.Println(YiB/ZiB) // "1024"
+
+: Что будет если использовать прямо ZiB в коде? Ответ ошибка компиляции, нечего переполнять константы
+: А если разделить ZiB на переменную, которая неизвестна в compile-time? То же самое, надо чтобы все манипуляции с константами не переполнялись
 
 * arrays
 
@@ -404,7 +410,9 @@
 - make эквивалентен следующему коду
 
   a := [10]int{}
-  s := a[:]
+  s := a[:<len>:<cap>]
+
+: cap явно задает значение для нового слайса
 
 * slices
 
@@ -427,6 +435,8 @@
   // c == nil && d != nil
   // len(c) == 0 && len(d) == 0
 
+: сравнение типов с nil
+
 * slices
 
   make([]T, len) // len == cap
@@ -442,6 +452,16 @@
   a = append(a, b...)
 
   sCopy := append([]int(nil), s...) // use slices.Clone instead
+
+- append(x) эквивалентен примерно следующему псевдокоду
+
+  if len(s) == cap(s) {
+      a := [~cap(s)*2]int{}
+      copy(a, s)
+      s = a[:len(s)]
+  }
+  s = s[:len(s)+1]
+  s[len(s)-1] = x
 
 : Все операции поверх слайсов работают с nil как с слайсом нулевой длины
 
@@ -499,6 +519,8 @@
 
   clear(ages)
 
+: чем clear отличается от удаления в цикле (которое компилировалось в O(1), но странно работало с NaN)
+
 * maps
 
   for name, age := range ages {
@@ -541,7 +563,11 @@
 
   dilbert.Salary -= 5000 // demoted, for writing too few lines of code
 
+: если указатель на структуру, то обращение так же через точку
+
 * struct
+
+В структурах нельзя полем положить себя. Но можно указатель
 
   type tree struct {
       value       int
@@ -549,6 +575,8 @@
   }
 
 * struct
+
+Объявление
 
   type Point struct{ X, Y int }
   p := Point{1, 2}
@@ -575,6 +603,8 @@
   hits[address{"golang.org", 443}]++
 
 * struct embedding
+
+Синтаксис для помощи с композицией
 
   type Point struct {
       X, Y int
@@ -662,7 +692,7 @@
 
 .play countwords/main.go /func Count/,/^}/
 
-: По-разному работает defer с named values и unnamed. Unnamed работает а-ля __result = value; return __result, поэтому defer с манипуляцией с value не влияет на возвращаемое значение
+: defer работает по-разному с named values и unnamed. Unnamed работает а-ля __result = value; return __result, поэтому defer с манипуляцией с value не влияет на возвращаемое значение
 
 * errors
 
@@ -703,6 +733,8 @@
       }
       // ...use r...
   }
+
+: по конвенции только EOF можно проверять через ==
 
 * variadic functions
 
@@ -756,3 +788,5 @@
 
       visit(root)
   }
+
+: важно сначала объявить, затем уже писать лямбду

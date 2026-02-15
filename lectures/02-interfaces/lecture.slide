@@ -32,11 +32,11 @@
   type Path []Point
 
   // Distance returns the distance traveled along the path.
-  func (path Path) Distance() float64 {
+  func (p Path) Distance() float64 {
       sum := 0.0
-      for i := range path {
+      for i := range p {
           if i > 0 {
-              sum += path[i-1].Distance(path[i])
+              sum += p[i-1].Distance(p[i])
           }
       }
       return sum
@@ -66,11 +66,11 @@
       Tail *IntList
   }
 
-  func (list *IntList) Sum() int {
-      if list == nil {
+  func (l *IntList) Sum() int {
+      if l == nil {
           return 0
       }
-      return list.Value + list.Tail.Sum()
+      return l.Value + l.Tail.Sum()
   }
 
 * Embedding
@@ -110,9 +110,8 @@ Methods
 
   func Lookup(key string) string {
       cache.Lock()
-      v := cache.mapping[key]
-      cache.Unlock()
-      return v
+      defer cache.Unlock()      
+      return cache.mapping[key]
   }
 
 * Method Values
