@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package calculator.v1;
+
+// What CAN be changed safely (старые клиенты продолжают работать):
+//
+// 1. Добавить новое поле с новым номером:
+message BinaryOp {
+  double a = 1;
+  double b = 2;
+  string request_id = 3; // OK: новое поле, новый tag
+}
+
+// 2. Добавить новый RPC в сервис — старые клиенты его не вызывают.
+// 3. Добавить новое значение в enum — но reserved/UNSPECIFIED обязателен.
+
+// What you MUST NEVER do:
+//
+// - Поменять номер поля:        double a = 7;   // BREAK
+// - Поменять тип поля:           int32 a = 1;    // BREAK
+// - Переиспользовать номер удалённого поля: BREAK
+// - Поменять package или имя сервиса:        BREAK
+//
+// Защита: reserved.
+
+message Result {
+  reserved 2, 3;          // когда-то были removed_field и cache_key
+  reserved "removed_field", "cache_key";
+
+  double value = 1;
+}

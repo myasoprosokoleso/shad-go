@@ -1,0 +1,660 @@
+gRPC, Docker и OpenTelemetry
+Лекция 13
+
+Павел Косицын
+
+* О чём сегодня
+
+- gRPC: что это и чем отличается от обычного HTTP
+- Интерцепторы
+- Эволюция .proto: как не сломать клиентов
+- Docker и docker-compose как способ упаковать сервис
+- OpenTelemetry: трейсы, спаны, контекст, коллектор
+- Демо: запускаем сервер в docker-compose и смотрим трейсы в Jaeger
+
+: Сегодня курс уже подходит к концу и мы посмотрим на то, как реально выглядит современный backend-сервис: контракт через .proto, gRPC, поднимаем всё через docker-compose, и инструментируем трейсами через OpenTelemetry.
+
+* HTTP, к которому мы привыкли
+
+Из лекции 6:
+
+- Транспорт: HTTP/1.1 (текстовый), HTTP/2 (бинарный, мультиплекс)
+- Контракт: чаще всего никакого. В лучшем случае OpenAPI
+- Тело: JSON (текст), XML, иногда msgpack/protobuf
+- Стриминг: chunked transfer, SSE, WebSocket — но всё это руками
+
+  GET /users/42 HTTP/1.1
+  Accept: application/json
+
+: HTTP остаётся универсальным транспортом — каждый браузер его умеет, каждый ALB его умеет балансировать. Но для внутреннего трафика микросервисов хочется чего-то более типизированного и автоматического: схему контракта, кодогенерацию клиентов, удобный стриминг.
+
+* Что такое RPC
+
+*Remote*Procedure*Call* — вызывайте функцию на другом хосте так, как будто она локальная.
+
+  // выглядит как обычный вызов
+  res, err := client.Add(ctx, &pb.BinaryOp{A: 1, B: 2})
+
+Идея старая: ONC RPC (1984), CORBA, DCOM, Java RMI, Thrift, gRPC.
+
+Главное в любом RPC:
+- Контракт (IDL: .proto, .thrift, .x)
+- Сериализация (protobuf, thrift binary, msgpack…)
+- Транспорт (TCP, HTTP/2, QUIC…)
+- Кодогенерация клиента и сервера
+
+: RPC — не новинка, эта идея с нами с 80-х. Каждое поколение приносит свой контракт и свой транспорт, gRPC — текущее поколение от Google. Важный пункт здесь — что схема обязательна и из неё генерируется код, в отличие от REST, где это опция.
+
+* gRPC в одной картинке
+
+- *Транспорт*: HTTP/2 (мультиплекс, бинарь, header compression)
+- *Сериализация*: Protocol Buffers (бинарный, со схемой)
+- *Контракт*: .proto файл, обязателен
+- *Кодоген*: клиент и сервер на ~10 языках
+- *Стриминг*: 4 типа RPC из коробки
+- *Стандарты*: метаданные, дедлайны, отмена, retries, балансировка
+
+  Author: Google, 2015
+  Site:   https://grpc.io
+
+: gRPC — это конкретная реализация RPC на HTTP/2 + protobuf. Имя расшифровывается как gRPC Remote Procedure Calls (рекурсивный акроним). Используется в Kubernetes, etcd, Istio, TiDB и так далее.
+
+* HTTP/JSON vs gRPC
+
+  ┌─────────────────┬────────────────────┬──────────────────────────┐
+  │                 │  HTTP/JSON         │  gRPC                    │
+  ├─────────────────┼────────────────────┼──────────────────────────┤
+  │  Контракт       │  опционально       │  .proto обязателен       │
+  │  Транспорт      │  HTTP/1 или 2      │  HTTP/2 (TLS/h2c)        │
+  │  Тело           │  JSON (текст)      │  protobuf (бинарь)       │
+  │  Размер         │  больше            │  обычно в 2-5x меньше    │
+  │  Кодоген        │  через OpenAPI     │  встроенно               │
+  │  Стриминг       │  SSE/WS/chunked    │  unary/server/cli/bidi   │
+  │  Браузер        │  везде             │  только gRPC-Web         │
+  │  Дебаг          │  curl              │  grpcurl/Reflection      │
+  └─────────────────┴────────────────────┴──────────────────────────┘
+
+: Главное отличие — gRPC изначально дизайнился под service-to-service, поэтому он экономный по сети, типизированный и с генерацией кода. JSON-API остаются королями там, где нужен браузер или максимальная простота отладки.
+
+* Почему HTTP/2 принципиально лучше для RPC
+
+- Мультиплексирование: много запросов в одном TCP-соединении без head-of-line блокировки на уровне приложения
+- Бинарный фрейминг — дешёвый парсинг
+- Header compression (HPACK)
+- Двунаправленные стримы из коробки — гRPC ими и пользуется
+- Один общий пул соединений вместо нового connect на каждый запрос
+
+: HTTP/1.1 keep-alive позволяет переиспользовать соединение, но не отправлять параллельные запросы по одному TCP. В HTTP/2 фреймы перемешаны, поэтому в одном соединении могут лететь сотни RPC одновременно. Для микросервисов это огромная экономия — нет шторма соединений.
+
+* Protocol Buffers
+
+Бинарный формат сериализации со схемой.
+
+  message BinaryOp {
+    double a = 1;
+    double b = 2;
+  }
+
+- *Tag* (`= 1`, `= 2`) — это то, что попадает в байты, а НЕ имя поля
+- Поля опциональны по умолчанию (proto3): нулевые значения = "не задано"
+- Неизвестные поля сохраняются и переотправляются дальше
+- Бинарный, маленький, schema-evolution дружелюбный
+
+.link https://protobuf.dev/programming-guides/encoding/ wire format
+
+: Самое главное правило про protobuf — поле идентифицируется номером (tag), а не именем. Поменять имя — безопасно. Поменять номер — катастрофа: байты на проводе будут интерпретироваться как другое поле. Подробнее в секции про версионирование.
+
+* Сервис Calculator
+
+.code proto/calculator.proto
+
+: Это весь контракт. Имя пакета `calculator.v1` — обратите внимание на `.v1`, мы к этому вернёмся. `go_package` указывает, куда положить сгенерированный Go-файл.
+
+* Генерация Go-кода
+
+  $ protoc \
+      --go_out=.     --go_opt=module=playground/grpc-demo \
+      --go-grpc_out=. --go-grpc_opt=module=playground/grpc-demo \
+      --proto_path=proto \
+      proto/calculator.proto
+
+Из одного .proto получается два файла:
+
+- `calculator.pb.go` — сообщения (`BinaryOp`, `Result`)
+- `calculator_grpc.pb.go` — клиент и сервер (`NewCalculatorClient`, `RegisterCalculatorServer`)
+
+.link https://protobuf.dev/reference/go/go-generated/ go-generated reference
+
+: protoc — компилятор схемы, плагины `protoc-gen-go` и `protoc-gen-go-grpc` отвечают за Go-код. В больших командах генерацию обычно гоняют в CI и коммитят результат в репозиторий — иначе у всех должен быть одинаковый protoc.
+
+* gRPC сервер
+
+.code server/main.go /type calcServer/,/^}/
+
+.code server/main.go /func .s .calcServer. Add/,/^}/
+
+.code server/main.go /func .s .calcServer. Div/,/^}/
+
+: `UnimplementedCalculatorServer` — это forward-compatibility: если в .proto добавили новый метод, ваш сервер скомпилируется и вернёт Unimplemented. Это удобно для постепенной миграции.
+
+* Регистрация сервера
+
+.code server/main.go /lis, err := net.Listen/,/srv.Serve/
+
+: net.Listen открывает TCP-сокет, grpc.NewServer создаёт grpc-сервер (со stats handler для otel — но об этом дальше), RegisterCalculatorServer привязывает наш handler. reflection.Register включает Server Reflection — это позволяет grpcurl-у динамически узнать схему. GracefulStop ждёт текущие RPC.
+
+* gRPC клиент
+
+.code client/main.go /conn, err := grpc.NewClient/,/client := pb/
+
+.code client/main.go /op := /,/call."Add"/
+
+: `grpc.NewClient` — это новое API (взамен старого `grpc.Dial`). Сам connect ленивый: реальное TCP-соединение откроется при первом RPC. `insecure.NewCredentials()` — без TLS, для прода нужны нормальные креды.
+
+* Status codes
+
+В gRPC нет HTTP status code, есть свой набор:
+
+  OK, Canceled, Unknown, InvalidArgument, DeadlineExceeded,
+  NotFound, AlreadyExists, PermissionDenied, ResourceExhausted,
+  FailedPrecondition, Aborted, OutOfRange, Unimplemented,
+  Internal, Unavailable, DataLoss, Unauthenticated
+
+  return nil, status.Error(codes.InvalidArgument, "division by zero")
+
+- Транспортные ошибки (`Unavailable`, `DeadlineExceeded`) приходят в том же канале
+- На клиенте: `status.Code(err)`, `status.FromError(err)`
+
+: Это важная разница с HTTP: там сетевая ошибка и 4xx/5xx — разные миры. В gRPC всё едино — ошибка одного типа, что не дозвонились, что бизнес-логика отказала. И это то, что позволяет писать унифицированные ретраи.
+
+* Стриминг
+
+Четыре типа RPC:
+
+  rpc Say(Msg)            returns (Msg);            // unary
+  rpc Repeat(Msg)         returns (stream Msg);     // server streaming
+  rpc Collect(stream Msg) returns (Msg);            // client streaming
+  rpc Chat(stream Msg)    returns (stream Msg);     // bidirectional
+
+.code proto/streaming.proto /service Echo/,/^}/
+
+: Стримы в gRPC — это не "магия", а просто другая форма того же HTTP/2 стрима. Сервер и клиент пишут/читают сообщения в обоих направлениях. Удобно для подписок, прогресса, длинных операций.
+
+* Стриминг: server side
+
+.code streaming/server.go /Server streaming/,/^}/
+
+.code streaming/server.go /Client streaming/,/^}/
+
+* Стриминг: bidi
+
+.code streaming/server.go /Bidi:/,/^}/
+
+: Bidi-стрим типично используется так: одна горутина читает Recv в цикле, другая пишет Send. Cancel приходит через ctx, который доступен через `stream.Context()`. Это самый мощный режим — но и самый легко простреливаемый.
+
+* Reflection и grpcurl
+
+С `reflection.Register(srv)` в сервере:
+
+  $ grpcurl -plaintext localhost:50051 list
+  calculator.v1.Calculator
+  grpc.reflection.v1.ServerReflection
+
+  $ grpcurl -plaintext -d '{"a":6,"b":7}' \
+      localhost:50051 calculator.v1.Calculator/Add
+  {
+    "value": 13
+  }
+
+Аналог `curl` для gRPC, идеально для дебага.
+
+: В продакшн-сервисах Reflection обычно выключают по соображениям безопасности — не хотим раскрывать схему. Но на дев-окружении это незаменимо.
+
+* Интерцепторы
+
+* Интерцепторы
+
+Аналог middleware в HTTP. Сидит между транспортом и handler-ом.
+
+Применения:
+- Логирование, метрики
+- Аутентификация / авторизация
+- Recover после panic
+- Трейсинг (но для otel это уже сделано через `StatsHandler`)
+- Retry, timeout, rate limiting
+
+Бывают на сервере и на клиенте, для unary и для stream — итого 4 типа.
+
+: Принципиально это та же идея, что и middleware в http: оборачиваем handler в цепочку функций, каждая может посмотреть/изменить запрос или ответ. В gRPC есть отдельные сигнатуры для unary и для stream RPC.
+
+* Unary server interceptor
+
+  type UnaryServerInterceptor func(
+      ctx context.Context,
+      req any,
+      info *UnaryServerInfo,
+      handler UnaryHandler,
+  ) (resp any, err error)
+
+  type UnaryHandler func(ctx context.Context, req any) (any, error)
+
+Принимает запрос, может вызвать `handler`, может не вызвать. Может посмотреть response.
+
+: Сигнатура похожа на http middleware: получаешь "следующий" обработчик и сам решаешь, что с ним делать. Можешь его не вызывать вовсе (например, если auth не прошёл).
+
+* Пример: логирование
+
+.code interceptors/server.go /func LoggingUnary/,/^}/
+
+: Простейший интерцептор: засекли время, вызвали handler, залогировали результат. `status.Code(err)` корректно отдаёт `OK` для nil-ошибки.
+
+* Пример: аутентификация
+
+.code interceptors/server.go /func AuthUnary/,/^}/
+
+`metadata` — это gRPC аналог HTTP-заголовков.
+
+: На клиенте метаданные кладутся через `metadata.AppendToOutgoingContext`, на сервере читаются через `metadata.FromIncomingContext`. Под капотом это HTTP/2 headers, но с нормализованными именами.
+
+* Пример: recovery от panic
+
+.code interceptors/server.go /func RecoveryUnary/,/^}/
+
+: Без recovery panic убивает горутину RPC и закрывает HTTP/2 stream. Сервер при этом остаётся жив, но клиент видит непонятную транспортную ошибку. Recovery-интерцептор превращает её в нормальный Internal со стектрейсом в логе.
+
+* Цепочка интерцепторов
+
+.code interceptors/server.go /func RegisterChain/,/^}/
+
+Порядок: первый указанный — самый внешний, последний — ближайший к handler-у.
+
+  Recovery -> Logging -> Auth -> handler
+
+: Порядок важен. Recovery должен быть самым внешним — чтобы ловить panic из логгера и auth тоже. Auth обычно последним, чтобы не логировать невалидные токены. Эта модель совпадает с decorators / middleware chain в любом фреймворке.
+
+* Client interceptors
+
+Зеркальная история на стороне клиента.
+
+.code interceptors/client.go /func AuthUnaryClient/,/^}/
+
+  conn, err := grpc.NewClient(addr,
+      grpc.WithChainUnaryInterceptor(
+          TimingUnaryClient,
+          AuthUnaryClient("secret"),
+      ),
+  )
+
+: Самый частый паттерн — прокидывать токен или request-id в каждый исходящий вызов. Закрытие здесь нужно, чтобы зафиксировать токен — иначе интерцептор не знал бы, чем подписывать.
+
+* go-grpc-middleware
+
+В продакшне свои интерцепторы пишут редко. Берут готовые:
+
+.link https://github.com/grpc-ecosystem/go-grpc-middleware
+
+Что есть:
+- `logging` (slog, zap, logr)
+- `recovery`
+- `retry`
+- `auth`
+- `ratelimit`
+- `validator` (валидация по protobuf-описанию)
+- `selector` (применять interceptor только к части методов)
+
+: Это сообществом поддерживаемый набор, версия v2. Если пишете боевой сервис — начинайте отсюда, а не с нуля.
+
+* Версионирование .proto
+
+* Почему это важно
+
+Контракт — публичный интерфейс сервиса.
+
+- Сервер раскатывают _не_ одновременно с клиентами
+- Старый клиент должен работать с новым сервером
+- Новый клиент должен работать со старым сервером (в идеале)
+- Один .proto компилируют десятки команд
+
+  break the protocol ⇒ break production
+
+: Schema evolution — это не теория. Это то, что отличает зрелый бэкенд от стартапного. Если каждый релиз сервера ломает старых клиентов, координация выкатки превращается в ад.
+
+* Wire format и поля
+
+Поля кодируются как пары `(tag, value)`.
+
+  // на проводе:
+  field=1 (varint), value=42
+  field=2 (length-delimited), value="hello"
+
+- Имя поля в байтах НЕ присутствует
+- Неизвестный tag читатель _сохраняет_ как unknown field и переотправляет дальше
+- Поэтому добавление полей — безопасно
+
+: Это ключ к пониманию. Имена нужны только генератору кода. Когда клиент читает старый ответ, он видит "поле с tag=3 — не знаю такое", и просто игнорирует. Когда он переотправляет это сообщение дальше — unknown поле летит вместе.
+
+* Что МОЖНО менять
+
+.code proto/calculator_evolve.proto /What CAN/,/Защита: reserved./
+
+: Безопасные операции: добавить новое поле с новым номером, добавить новый RPC, добавить новое значение в enum. Все они аддитивны.
+
+* Что НЕЛЬЗЯ менять
+
+.code proto/calculator_evolve.proto /What you MUST NEVER/,/Защита: reserved./
+
+И НИКОГДА не переиспользовать tag удалённого поля — старые клиенты пришлют под этим номером свои данные.
+
+: Это самая частая ошибка джунов: "поле больше не нужно, удалю его и буду переиспользовать tag". Через неделю обнаруживаете, что часть клиентов всё ещё шлёт старое значение, и сервер читает его как новое поле — с весёлыми последствиями.
+
+* reserved
+
+.code proto/calculator_evolve.proto /message Result/,/^}/
+
+Резервируем удалённые tag-и и имена. Компилятор не даст переиспользовать.
+
+: Это страховка от человеческой памяти. Через год никто не помнит, что field 2 когда-то был. reserved-блок компилятор проверяет за вас.
+
+* Когда всё-таки нужна v2
+
+Иногда контракт меняется так, что аддитивно нельзя:
+
+- поменяли семантику метода
+- убрали обязательное поле
+- переписали структуру запроса
+
+Тогда — новая мажорная версия. Это _отдельный_ package.
+
+.code proto/calculator_v2.proto /package/,/option go_package/
+
+Старая `calculator.v1` живёт параллельно. Клиенты мигрируют в своём темпе.
+
+: Поэтому каждый сервис изначально называется `myservice.v1`. Иначе при необходимости несовместимого изменения у вас будет либо breaking change, либо вам придётся ввести версию задним числом, и старый клиент не догадается её прицепить. v1 — это страховой полис.
+
+* Полный v2
+
+.code proto/calculator_v2.proto /service Calculator/,/^}/
+
+.code proto/calculator_v2.proto /message ReduceRequest/,/^}/
+
+* Docker
+
+* Зачем
+
+Сервер с зависимостями: gRPC, otel SDK, экспортёр. Запуск рядом: коллектор, Jaeger. Запуск везде одинаково.
+
+- Сборка в один артефакт (image)
+- Изоляция окружения
+- Воспроизводимость локально / в CI / в проде
+- docker-compose: связка нескольких сервисов одной командой
+
+: Docker нам тут нужен не как самоцель, а как удобный способ собрать всё демо одной командой. В проде вы пользуетесь kubernetes-ом и helm-ом, но локально docker-compose рулит.
+
+* Multi-stage Dockerfile
+
+.code server/Dockerfile
+
+: Два этапа. На первом — `golang:1.25-alpine`, компилируем статический бинарь. На втором — `distroless/static` (~2 МБ, без шелла, без apk), копируем только бинарь. Итоговый образ маленький и без атакуемой поверхности.
+
+* Почему distroless
+
+  FROM gcr.io/distroless/static-debian12:nonroot
+
+- Нет shell — нечем `exec`-нуться, если кто-то прорвётся через CVE
+- Нет менеджера пакетов
+- ~2 МБ против ~80 МБ у `alpine`
+- Запуск не из-под root по умолчанию
+- Идеально для статических Go-бинарей
+
+: Альтернатива — `FROM scratch` (вообще пусто). Distroless удобнее тем, что туда положены ca-certs и tzdata. С `CGO_ENABLED=0` бинарь становится статическим — никакая glibc не нужна.
+
+* docker-compose
+
+.code docker-compose.yml /services:/,/server:/
+
+: docker-compose описывает несколько сервисов в одном YAML. `healthcheck` нужен, чтобы collector ждал, пока Jaeger готов. `depends_on: service_healthy` — это уже compose v2 фича.
+
+* docker-compose: server
+
+.code docker-compose.yml /  server:/,$
+
+: Наш сервер собирается прямо из исходников (build context). `OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317` — это DNS-имя внутри сети compose. С хоста (откуда мы запустим loadtest) тот же коллектор доступен через `localhost:4317`.
+
+* Запуск
+
+  $ make up
+  [+] Running 4/4
+   ✔ Network grpc-demo_default            Created
+   ✔ Container grpc-demo-jaeger-1         Started
+   ✔ Container grpc-demo-otel-collector-1 Started
+   ✔ Container grpc-demo-server-1         Started
+
+  Jaeger UI:    http://localhost:16686
+  gRPC server:  localhost:50051
+  OTLP/gRPC:    localhost:4317
+
+  $ make client
+  Add  6 7 -> 13
+  Sub  6 7 -> -1
+  Mul  6 7 -> 42
+  Div  6 7 -> 0.857142857
+  Div  6 0 -> ERROR (expected): rpc error: code = InvalidArgument
+
+: Демо-запуск. На этом моменте уже можно открыть localhost:16686 и увидеть, что Jaeger пустой — данных ещё нет. После make client появляются первые трейсы.
+
+* OpenTelemetry
+
+* Зачем
+
+Когда у вас 10 микросервисов и запрос идёт по 5 из них — где упало? Где замедлилось?
+
+Три кита observability:
+- *Logs* — текст событий
+- *Metrics* — числа во времени (RPS, latency, ошибки)
+- *Traces* — цепочка вызовов внутри одного запроса
+
+OpenTelemetry — стандарт и SDK для всех трёх.
+
+: Логи отвечают на "что произошло", метрики — "как часто и насколько плохо", трейсы — "по какому пути запрос шёл и где висел". Эти три источника дополняют друг друга, и opentelemetry — попытка унифицировать API для всех.
+
+* Что такое OpenTelemetry
+
+Это:
+- *Спецификация* (data model, протокол OTLP, semantic conventions)
+- *SDK* на ~12 языках
+- *Collector* — отдельный демон-роутер для телеметрии
+- *Auto-instrumentation* для популярных библиотек (`otelgrpc`, `otelhttp`, ...)
+
+Бэкенды (Jaeger, Tempo, Grafana, Datadog, Honeycomb...) поддерживают OTLP — за счёт этого SDK не зависит от вендора.
+
+: Раньше каждый APM-вендор имел свой агент и свой SDK. OpenTelemetry — это попытка стандартизовать "источник" телеметрии, чтобы менять бэкенды без переписывания приложений.
+
+* Trace и Span
+
+- *Span* — единица работы: имя, время старта, длительность, атрибуты, статус
+- *Trace* — дерево связанных спанов, общий `TraceID`
+- *Parent/Child* — отношение между спанами
+- *Context* — то, что переносится между процессами, чтобы child-span на сервере знал свой parent на клиенте
+
+  trace_id=abc...   ┌── span: client.SendRequest ──┐
+                    │   ├── span: server.Handler ──┤
+                    │   │   ├── span: db.Query ────┤
+                    │   │   └── span: cache.Get ───┤
+                    │   └─────────────────────────┘
+                    └──────────────────────────────┘
+
+: Спан — это в первую очередь время начала, длительность и имя. Атрибуты добавляются по вкусу: какой userId, какой RPC method, какой sql query (с осторожностью — PII). Дерево спанов и есть trace.
+
+* Архитектура
+
+  ┌─────────────┐   OTLP   ┌────────────┐   OTLP   ┌─────────┐
+  │ application │ ───────▶ │  collector │ ───────▶ │ backend │
+  │   + SDK     │          │            │          │  (Jaeger│
+  └─────────────┘          └────────────┘          │ /Tempo) │
+                                                   └─────────┘
+
+- *SDK* в приложении: создаёт спаны, батчит, шлёт
+- *OTLP* — gRPC/HTTP протокол доставки
+- *Collector* — отдельный процесс: батчинг, ретраи, фан-аут на несколько бэкендов, sampling
+- *Backend* — хранение и UI (Jaeger, Tempo, Datadog, ...)
+
+: Можно слать из SDK прямо в backend, но в проде так не делают. Collector берёт на себя retries, batching, маршрутизацию на несколько систем (например, трейсы и в Jaeger, и в Datadog). И, что важно, его можно перезагрузить отдельно от приложения.
+
+* OTLP
+
+OpenTelemetry Protocol — стандарт доставки телеметрии.
+
+- gRPC, порт 4317 (мы используем)
+- HTTP/protobuf, порт 4318
+- Принимает все три сигнала: traces, metrics, logs
+
+Резюме: телеметрия — это _тоже_ gRPC-трафик.
+
+: OTLP — это просто gRPC-сервис с заданным .proto. Тот самый "коллектор" — это его реализация. Поэтому в нашем стеке gRPC играет двойную роль: и приложение, и доставка трейсов.
+
+* SDK: инициализация
+
+.code internal/otelinit/otelinit.go /func Setup/,/return tp.Shutdown/
+
+: Здесь вся магия: создаём exporter, описываем ресурс (service.name и instance_id), задаём sampler, регистрируем глобально TracerProvider и propagator. Один вызов Setup в main — и больше про SDK можно не думать.
+
+* Resource
+
+Resource — это _кто_ генерит спаны.
+
+  res, err := resource.Merge(resource.Default(), resource.NewWithAttributes(
+      semconv.SchemaURL,
+      semconv.ServiceName(cfg.ServiceName),
+      semconv.ServiceInstanceID(instanceID()),
+  ))
+
+Атрибуты ресурса появляются на _каждом_ спане сервиса:
+
+- `service.name=calculator-server`
+- `service.instance.id=<hostname>`
+- `process.pid`, `os.type`, ...
+
+: Resource attributes — это про "что за приложение". Это то, по чему вы фильтруете в UI: "покажи мне трейсы calculator-server в проде". Span attributes — это про конкретный запрос.
+
+* Sampling
+
+Записывать все спаны на проде — дорого.
+
+  sampler := sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.01)) // 1%
+
+- `AlwaysSample` / `NeverSample` — крайности
+- `TraceIDRatioBased(p)` — берёт `p` долю трейсов по хешу TraceID
+- `ParentBased` — наследует решение от родителя
+- Tail-based sampling — в коллекторе, после того как видны все спаны
+
+: ParentBased важен: если родитель уже решил "сэмплируем", дочерние спаны должны тоже идти, иначе trace получится дырявым. Хеш по TraceID гарантирует, что выбор согласован между всеми сервисами.
+
+* Propagation
+
+Контекст ходит между процессами в заголовках.
+
+  otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+      propagation.TraceContext{}, propagation.Baggage{},
+  ))
+
+W3C TraceContext:
+
+  traceparent: 00-<trace-id>-<span-id>-<flags>
+  tracestate:  vendor1=...,vendor2=...
+
+В gRPC это идёт через `metadata`, в HTTP — через headers. Для нас всё это делает `otelgrpc`.
+
+: Без propagator-а каждый сервис создаёт свой trace, и связи нет. С propagator-ом trace_id переходит из клиента в сервер, и Jaeger склеивает их в одно дерево. Baggage — это пользовательский payload (тенант, user-id), который тоже ходит вместе.
+
+* otelgrpc
+
+Готовая инструментация для gRPC. Не пишем спаны руками.
+
+Сервер:
+
+  srv := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
+
+Клиент:
+
+  conn, err := grpc.NewClient(addr,
+      grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+      ...)
+
+- `StatsHandler` — низкоуровневый хук в gRPC. Видит больше, чем интерцептор: запуск стрима, каждое сообщение, конец стрима.
+- Атрибуты `rpc.method`, `rpc.service`, `rpc.grpc.status_code` — автоматически.
+
+: Раньше otelgrpc был интерцептором — это deprecated. Сейчас правильный путь — StatsHandler, потому что он видит стримы и не зависит от UnaryInterceptor контракта.
+
+* OpenTelemetry Collector
+
+.code otel-collector.yaml
+
+: Три раздела: receivers (что принимаем — OTLP), processors (что делаем — батчинг), exporters (куда шлём — Jaeger через OTLP). pipelines связывает их в граф. И это всё конфигурируется без перекомпиляции.
+
+* Полная картинка
+
+  host                          docker-compose
+  ────────────                  ──────────────────────────────────────────
+  client    ──gRPC :50051─▶ server ─OTLP─▶ collector ─OTLP─▶ jaeger ─▶ UI
+  loadtest  ──gRPC :50051─▶
+        │
+        └─OTLP :4317──▶ collector
+
+- Сервер кладёт спаны в коллектор (DNS `otel-collector:4317`)
+- loadtest на хосте кладёт свои спаны в тот же коллектор (`localhost:4317`)
+- Коллектор всё батчит и шлёт в Jaeger
+- Trace context связывает loadtest-спан и server-спан через gRPC metadata
+
+: Это та схема, что вы реально увидите в проде, минус kubernetes. Каждый компонент можно перезагрузить независимо.
+
+* Демо: loadtest
+
+  $ make loadtest ARGS="-rps 200 -duration 3s -method mul -trace -trace-sample 0.05"
+  firing 200 rps for 3s at localhost:50051 (method=mul, concurrency=16, trace=true)
+
+  ==== results ====
+  elapsed:     2.998s
+  sent:        590
+  success:     590
+  errors:      0
+  actual rps:  196.8
+  latency:
+    min:  199µs
+    p50:  722µs
+    p90:  1.002ms
+    p95:  1.691ms
+    p99:  186.831ms
+    max:  216.826ms
+
+: Запускаем загрузку, sample=5% — то есть около 30 трейсов на 590 RPC. Этого достаточно, чтобы увидеть распределение, и не утопить collector.
+
+* Демо: что в Jaeger
+
+Открываем `http://localhost:16686`:
+
+- Service: `calculator-loadtest`
+- Find Traces
+- Видим список трейсов с длительностью
+- Кликаем — flame graph из двух спанов: `calculator-loadtest -> calculator-server`
+- В атрибутах — `rpc.method=Mul`, `rpc.grpc.status_code=0`, и т.д.
+
+Каждый трейс склеен из спанов в двух процессах — благодаря trace context.
+
+: Прямо в Jaeger можно фильтровать по тегам, искать долгие трейсы, видеть waterfall. Если вставить span db.Query внутрь обработчика, он появится в дереве. И это — главная сила трейсов: понимаешь, _где_ в распределённой системе время.
+
+* Что осталось за кадром
+
+- Metrics в OpenTelemetry (RED-метрики автоматом)
+- Logs (relatively young, но `slog`-bridge уже есть)
+- TLS, mTLS в gRPC
+- gRPC-Gateway: REST/JSON фасад над тем же сервисом
+- gRPC-Web для браузера
+- Load balancing (`grpclb`, `xds`)
+- Connect: альтернатива от Buf, совместимая с grpc
+
+.link https://grpc.io/docs/languages/go grpc-go docs
+.link https://opentelemetry.io/docs/languages/go otel-go docs
+.link https://github.com/grpc-ecosystem/go-grpc-middleware go-grpc-middleware
+.link https://buf.build buf — современный тулинг для .proto
+
+: gRPC и otel — большая тема, на лекцию мы взяли минимум. Дальше можно копать по ссылкам, но 80% продакшн-кейсов покрывается тем, что мы сегодня прошли: .proto + сервер + клиент + интерцепторы + otelgrpc + collector + Jaeger.

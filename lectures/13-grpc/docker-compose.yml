@@ -1,0 +1,53 @@
+# Brings up: jaeger UI/storage, OTel collector, and the gRPC server.
+# The client and loadtest stay on the host and connect to the exposed ports.
+#
+#   make up           # start everything
+#   make down         # stop & remove
+#   make logs         # tail all
+#
+# Jaeger UI:   http://localhost:16686
+# gRPC server: localhost:50051
+# OTLP/gRPC:   localhost:4317     (use this from the host)
+# OTLP/HTTP:   localhost:4318
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"   # UI
+      # 4317/4318 inside the network only — the collector forwards to it.
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:14269/"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    command: ["--config=/etc/otel/collector.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otel/collector.yaml:ro
+    ports:
+      - "4317:4317"     # OTLP/gRPC  (used by host-side client/loadtest)
+      - "4318:4318"     # OTLP/HTTP
+      - "13133:13133"   # health_check (if enabled in config)
+    depends_on:
+      jaeger:
+        condition: service_healthy
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - OTEL_SERVICE_NAME=calculator-server
+    command:
+      - "-addr=:50051"
+      - "-otel-sample=1.0"
+    ports:
+      - "50051:50051"
+    depends_on:
+      - otel-collector

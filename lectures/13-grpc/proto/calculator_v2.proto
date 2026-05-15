@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+// Breaking change: новая мажорная версия живёт в новом package и
+// в новом каталоге. Старые клиенты остаются на v1 пока не мигрируют.
+package calculator.v2;
+
+option go_package = "playground/grpc-demo/gen/calculatorv2pb;calculatorv2pb";
+
+// Например теперь поддерживаем произвольное число операндов.
+service Calculator {
+  rpc Reduce(ReduceRequest) returns (Result);
+}
+
+message ReduceRequest {
+  enum Op {
+    OP_UNSPECIFIED = 0;
+    OP_ADD = 1;
+    OP_SUB = 2;
+    OP_MUL = 3;
+    OP_DIV = 4;
+  }
+  Op op = 1;
+  repeated double operands = 2;
+}
+
+message Result {
+  double value = 1;
+}

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package streaming.v1;
+
+service Echo {
+  // Unary: один запрос — один ответ.
+  rpc Say(Msg) returns (Msg);
+
+  // Server streaming: один запрос — поток ответов.
+  rpc Repeat(Msg) returns (stream Msg);
+
+  // Client streaming: поток запросов — один ответ.
+  rpc Collect(stream Msg) returns (Msg);
+
+  // Bidirectional: оба конца стримят, независимо.
+  rpc Chat(stream Msg) returns (stream Msg);
+}
+
+message Msg {
+  string text = 1;
+}

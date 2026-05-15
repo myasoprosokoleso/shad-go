@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package calculator.v1;
+
+option go_package = "playground/grpc-demo/gen/calculatorpb;calculatorpb";
+
+service Calculator {
+  rpc Add(BinaryOp) returns (Result);
+  rpc Sub(BinaryOp) returns (Result);
+  rpc Mul(BinaryOp) returns (Result);
+  rpc Div(BinaryOp) returns (Result);
+}
+
+message BinaryOp {
+  double a = 1;
+  double b = 2;
+}
+
+message Result {
+  double value = 1;
+}
