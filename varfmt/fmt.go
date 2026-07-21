@@ -35,7 +35,7 @@ func Sprintf(format string, args ...interface{}) string {
 		if numStart == numEnd {
 			argsIdx = placeholderIdx
 		} else {
-			num, err := strconv.Atoi(string(format[numStart:numEnd]))
+			num, err := strconv.Atoi(format[numStart:numEnd])
 			if err != nil {
 				log.Fatal(err)
 			}

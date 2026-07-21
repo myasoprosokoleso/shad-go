@@ -18,7 +18,7 @@ func VerifyNone(t testingT) {
 	before := parseOpenFiles()
 	t.Cleanup(func() {
 		after := parseOpenFiles()
-		
+
 		var leaked []string
 		for fdAfter, pathAfter := range after {
 			if pathBefore, ok := before[fdAfter]; !ok || pathBefore != pathAfter {
