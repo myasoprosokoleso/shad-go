@@ -1,6 +1,4 @@
-//go:build !solution
-
-package requestlog
+package main
 
 import (
 	"net/http"
