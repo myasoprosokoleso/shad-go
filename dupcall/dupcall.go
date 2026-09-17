@@ -25,11 +25,13 @@ func (o *Call) Do(
 	cb func(context.Context) (interface{}, error),
 ) (result interface{}, err error) {
 	o.mu.Lock()
-	currentCtx := o.ctx
+	currentCtx := o.ctx // работаем с копией o.ctx
+
 	if currentCtx != nil {
 		currentCtx.waiters++
 		o.mu.Unlock()
 	} else {
+		// Новый контекст, чтобы не отменять все cb при отмене одного Do
 		cbContext, cancel := context.WithCancel(context.Background())
 		currentCtx = &callContext{
 			cancel:  cancel,
@@ -39,18 +41,14 @@ func (o *Call) Do(
 		o.ctx = currentCtx
 		o.mu.Unlock()
 
+		// Не ждем завершения cb, чтобы следить за отменой контекста
 		go func() {
 			currentCtx.result, currentCtx.err = cb(cbContext)
 
 			o.mu.Lock()
-			// o.ctx не перезаписан после o.mu.Unlock() --> завершаем текущий вызов
-			// дальше работаем с копией currentCtx
-			if o.ctx == currentCtx {
-				o.ctx = nil
-			}
-			o.mu.Unlock()
-
+			o.ctx = nil
 			close(currentCtx.done)
+			o.mu.Unlock()
 		}()
 	}
 
