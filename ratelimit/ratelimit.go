@@ -27,9 +27,6 @@ func NewLimiter(maxCount int, interval time.Duration) *Limiter {
 
 	if interval > 0 {
 		l.tokens = make(chan struct{}, maxCount)
-		for range maxCount {
-			l.tokens <- struct{}{}
-		}
 	}
 
 	return l
@@ -52,20 +49,21 @@ func (l *Limiter) Acquire(ctx context.Context) error {
 				return ErrStopped
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-l.tokens:
-				go l.replenish()
+			case l.tokens <- struct{}{}:
+				go l.releaseAfter(l.interval)
 			}
 		}
 		return nil
 	}
 }
 
-func (l *Limiter) replenish() {
-	timer := time.NewTimer(l.interval)
+func (l *Limiter) releaseAfter(interval time.Duration) {
+	timer := time.NewTimer(interval)
 	defer timer.Stop()
+
 	select {
 	case <-timer.C:
-		l.tokens <- struct{}{}
+		<-l.tokens
 	case <-l.stop:
 	}
 }
